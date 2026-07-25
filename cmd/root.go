@@ -4,21 +4,20 @@ Copyright © 2026 NAME HERE <EMAIL ADDRESS>
 package cmd
 
 import (
+	"bytes"
 	"fmt"
 	"io/fs"
-	"log"
 	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
 )
 
 var ProjectDirs = []string{
-	// "~/Projects",
 	"$HOME/Projects",
-	// "/home/nick/Projects",
 }
 
 func runCmdIn(dir, name string, args ...string) (string, error) {
@@ -40,48 +39,71 @@ Cobra is a CLI library for Go that empowers applications.
 This application is a tool to generate the needed files
 to quickly create a Cobra application.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		// Search for all repos
+		var lines []string
+
 		for _, projectDir := range ProjectDirs {
-			slog.Debug("walking tree", "dir", projectDir)
 			root := os.ExpandEnv(projectDir)
 			fileSystem := os.DirFS(root)
-			err := fs.WalkDir(fileSystem, ".", func(path string, d fs.DirEntry, err error) error {
+			fs.WalkDir(fileSystem, ".", func(path string, d fs.DirEntry, err error) error {
 				if err != nil {
-					log.Fatal(err)
-				}
-				if d.Name() != ".git" {
 					return nil
 				}
-				if !d.IsDir() {
+				if d.Name() != ".git" || !d.IsDir() {
 					return nil
 				}
 
-				splitPath := strings.Split(path, "/")
-				parentDir := splitPath[len(splitPath)-2]
-				parentPathRelative := strings.Replace(path, "/.git", "", 1)
-				parentPathAbsolute := fmt.Sprintf("%s/%s", root, parentPathRelative)
+				repoPath := filepath.Join(root, filepath.Dir(path))
+				repoName := filepath.Base(filepath.Dir(path))
 
+				slog.Debug("repo found", "repo", repoName, "path", repoPath)
 
-				slog.Info("git repo found", "path", path, "parent", parentDir)
-
-				gitBranchesRaw, err := runCmdIn(parentPathAbsolute, "git", "branch", "-a")
+				out, err := runCmdIn(repoPath, "git", "branch", "--format=%(refname:short)")
 				if err != nil {
-					return err
+					slog.Warn("failed to list branches", "repo", repoName, "err", err)
+					return nil
 				}
 
-				gitBranches := strings.Split(gitBranchesRaw, "\n")
-
-				slog.Info("git branches found")
-				for _, branch := range gitBranches {
-					slog.Info(">", "branch", strings.TrimSpace(branch))
+				for branch := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
+					branch = strings.TrimSpace(branch)
+					if branch == "" {
+						continue
+					}
+					lines = append(lines, fmt.Sprintf("%s\t%s", repoName, branch))
 				}
-
 
 				return nil
 			})
-			if err != nil {
-				log.Fatal(err)
-			}
+		}
+
+		if len(lines) == 0 {
+			fmt.Println("No branches found")
+			return
+		}
+
+		fzf := exec.Command("fzf",
+			"--prompt=branch > ",
+			"--delimiter=\t",
+			"--with-nth=1,2",
+			"--nth=1,2",
+			"--tabstop=24",
+			"--header=REPO | BRANCH",
+			"--height=40%",
+			"--border",
+		)
+		fzf.Stdin = strings.NewReader(strings.Join(lines, "\n"))
+		fzf.Stderr = os.Stderr
+
+		var buf bytes.Buffer
+		fzf.Stdout = &buf
+
+		if err := fzf.Run(); err != nil {
+			os.Exit(0)
+		}
+
+		selected := strings.TrimSpace(buf.String())
+		parts := strings.SplitN(selected, "\t", 2)
+		if len(parts) == 2 {
+			fmt.Printf("repo=%s  branch=%s\n", parts[0], parts[1])
 		}
 	},
 }
