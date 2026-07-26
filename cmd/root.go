@@ -57,18 +57,36 @@ to quickly create a Cobra application.`,
 
 				slog.Debug("repo found", "repo", repoName, "path", repoPath)
 
-				out, err := runCmdIn(repoPath, "git", "branch", "--format=%(refname:short)")
+				out, err := runCmdIn(repoPath, "git", "branch", "-a", "--format=%(refname:short)")
 				if err != nil {
 					slog.Warn("failed to list branches", "repo", repoName, "err", err)
 					return nil
 				}
 
-				for branch := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
-					branch = strings.TrimSpace(branch)
-					if branch == "" {
+				var remoteBranches []string
+				localSet := map[string]bool{}
+
+				for raw := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
+					b := strings.TrimSpace(raw)
+					if b == "" || b == "origin" {
 						continue
 					}
-					lines = append(lines, fmt.Sprintf("%s\t%s", repoName, branch))
+					if strings.HasPrefix(b, "origin/") {
+						remoteBranches = append(remoteBranches, b)
+					} else {
+						localSet[b] = true
+						slog.Debug("branch found", "branch", b)
+						lines = append(lines, fmt.Sprintf("%s\t%s\t%s", repoName, b, b))
+					}
+				}
+
+				for _, b := range remoteBranches {
+					short := strings.TrimPrefix(b, "origin/")
+					if localSet[short] {
+						continue
+					}
+					slog.Debug("branch found", "branch", b)
+					lines = append(lines, fmt.Sprintf("%s\t%s\t%s (r)", repoName, b, short))
 				}
 
 				return nil
@@ -83,10 +101,10 @@ to quickly create a Cobra application.`,
 		fzf := exec.Command("fzf",
 			"--prompt=branch > ",
 			"--delimiter=\t",
-			"--with-nth=1,2",
-			"--nth=1,2",
+			"--with-nth=1,3",
+			"--nth=1,3",
 			"--tabstop=24",
-			"--header=REPO | BRANCH",
+			"--header=REPO \tBRANCH (r = remote)",
 			"--height=40%",
 			"--border",
 		)
@@ -101,10 +119,11 @@ to quickly create a Cobra application.`,
 		}
 
 		selected := strings.TrimSpace(buf.String())
-		parts := strings.SplitN(selected, "\t", 2)
-		if len(parts) == 2 {
-			fmt.Printf("repo=%s  branch=%s\n", parts[0], parts[1])
+		parts := strings.SplitN(selected, "\t", 3)
+		if len(parts) < 2 {
+			os.Exit(0)
 		}
+		fmt.Printf("repo=%s  branch=%s\n", parts[0], parts[1])
 	},
 }
 
