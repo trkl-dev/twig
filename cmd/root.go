@@ -57,37 +57,51 @@ to quickly create a Cobra application.`,
 
 				slog.Debug("repo found", "repo", repoName, "path", repoPath)
 
-				out, err := runCmdIn(repoPath, "git", "branch", "-a", "--format=%(refname:short)")
+				out, err := runCmdIn(repoPath, "git", "branch", "-a", "--format=%(refname:short)%09%(if)%(worktreepath)%(then)wt%(end)")
 				if err != nil {
 					slog.Warn("failed to list branches", "repo", repoName, "err", err)
 					return nil
 				}
 
-				var remoteBranches []string
-				localSet := map[string]bool{}
+			type remoteBranch struct {
+				name  string
+				hasWt bool
+			}
+			var remoteBranches []remoteBranch
+			localSet := map[string]bool{}
 
-				for raw := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
-					b := strings.TrimSpace(raw)
-					if b == "" || b == "origin" {
-						continue
-					}
-					if strings.HasPrefix(b, "origin/") {
-						remoteBranches = append(remoteBranches, b)
-					} else {
-						localSet[b] = true
-						slog.Debug("branch found", "branch", b)
-						lines = append(lines, fmt.Sprintf("%s\t%s\t%s", repoName, b, b))
-					}
+			for raw := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
+				b, wtFlag, _ := strings.Cut(raw, "\t")
+				b = strings.TrimSpace(b)
+				if b == "" || b == "origin" {
+					continue
 				}
-
-				for _, b := range remoteBranches {
-					short := strings.TrimPrefix(b, "origin/")
-					if localSet[short] {
-						continue
+				hasWt := wtFlag == "wt"
+				if strings.HasPrefix(b, "origin/") {
+					remoteBranches = append(remoteBranches, remoteBranch{b, hasWt})
+				} else {
+					display := b
+					if hasWt {
+						display += " (wt)"
 					}
+					localSet[b] = true
 					slog.Debug("branch found", "branch", b)
-					lines = append(lines, fmt.Sprintf("%s\t%s\t%s (r)", repoName, b, short))
+					lines = append(lines, fmt.Sprintf("%s\t%s\t%s", repoName, b, display))
 				}
+			}
+
+			for _, rb := range remoteBranches {
+				short := strings.TrimPrefix(rb.name, "origin/")
+				if localSet[short] {
+					continue
+				}
+				display := short + " (r)"
+				if rb.hasWt {
+					display += ", wt"
+				}
+				slog.Debug("branch found", "branch", rb.name)
+				lines = append(lines, fmt.Sprintf("%s\t%s\t%s", repoName, rb.name, display))
+			}
 
 				return nil
 			})
@@ -104,7 +118,7 @@ to quickly create a Cobra application.`,
 			"--with-nth=1,3",
 			"--nth=1,3",
 			"--tabstop=24",
-			"--header=REPO \tBRANCH (r = remote)",
+			"--header=REPO \tBRANCH (r = remote, wt = worktree)",
 			"--height=40%",
 			"--border",
 		)
@@ -123,7 +137,9 @@ to quickly create a Cobra application.`,
 		if len(parts) < 2 {
 			os.Exit(0)
 		}
-		fmt.Printf("repo=%s  branch=%s\n", parts[0], parts[1])
+		fmt.Printf("repo=%s  full_branch=%s  branch=%s\n", parts[0], parts[1], parts[2])
+
+		
 	},
 }
 
