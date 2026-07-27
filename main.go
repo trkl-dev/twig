@@ -5,10 +5,13 @@ package main
 
 import (
 	"log/slog"
+	"os"
 	"twig/cmd"
 )
 
 func main() {
-	slog.SetLogLoggerLevel(slog.LevelInfo)
+	if os.Getenv("TWIG_DEBUG") != "" {
+		slog.SetLogLoggerLevel(slog.LevelDebug)
+	}
 	cmd.Execute()
 }
