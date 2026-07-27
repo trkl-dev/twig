@@ -99,66 +99,63 @@ func branchLines(repoName, repoPath string) []string {
 	return lines
 }
 
+type repoRef struct{ name, path string }
+
+// findRepos walks ProjectDirs and returns every git repo found.
+func findRepos() []repoRef {
+	var repos []repoRef
+	for _, projectDir := range ProjectDirs {
+		root := os.ExpandEnv(projectDir)
+		fileSystem := os.DirFS(root)
+		walkStart := time.Now()
+		entries := 0
+		fs.WalkDir(fileSystem, ".", func(path string, d fs.DirEntry, err error) error {
+			entries++
+			if err != nil || !d.IsDir() {
+				return nil
+			}
+			if d.Name() == ".git" {
+				return fs.SkipDir
+			}
+			gitPath := filepath.Join(root, path, ".git")
+			gitDirInfo, err := os.Stat(gitPath)
+
+			if err != nil {
+				// not a repo; don't descend past MaxDepth
+				if strings.Count(path, "/")+1 >= MaxDepth {
+					return fs.SkipDir
+				}
+				return nil
+			}
+
+			if !gitDirInfo.IsDir() {
+				slog.Debug("skipping worktree", "path", gitPath)
+				return fs.SkipDir
+			}
+
+			repoPath := filepath.Join(root, path)
+			repoName := d.Name()
+
+			slog.Debug("repo found", "repo", repoName, "path", repoPath)
+			repos = append(repos, repoRef{repoName, repoPath})
+
+			return fs.SkipDir
+		})
+		slog.Debug("walk done", "root", root, "entries", entries, "took", time.Since(walkStart))
+	}
+	return repos
+}
+
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:   "twig",
-	Short: "A brief description of your application",
-	Long: `A longer description that spans multiple lines and likely contains
-examples and usage of using your application. For example:
-
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+	Short: "Fuzzy-switch to any branch across your repos",
+	Long: `Lists every branch across the repos under your project directories,
+lets you pick one with fzf, checks it out in a worktree if needed,
+and drops you into a tmux session for it.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		type repoRef struct{ name, path string }
-		var repos []repoRef
-
 		runStart := time.Now()
-		var walkTotal time.Duration
-		totalEntries := 0
-
-		for _, projectDir := range ProjectDirs {
-			root := os.ExpandEnv(projectDir)
-			fileSystem := os.DirFS(root)
-			walkStart := time.Now()
-			entries := 0
-			fs.WalkDir(fileSystem, ".", func(path string, d fs.DirEntry, err error) error {
-				entries++
-				if err != nil || !d.IsDir() {
-					return nil
-				}
-				if d.Name() == ".git" {
-					return fs.SkipDir
-				}
-				gitPath := filepath.Join(root, path, ".git")
-				gitDirInfo, err := os.Stat(gitPath)
-
-				if err != nil {
-					// not a repo; don't descend past MaxDepth
-					if strings.Count(path, "/")+1 >= MaxDepth {
-						return fs.SkipDir
-					}
-					return nil
-				}
-
-				if !gitDirInfo.IsDir() {
-					slog.Debug("skipping worktree", "path", gitPath)
-					return fs.SkipDir
-				}
-
-				repoPath := filepath.Join(root, path)
-				repoName := d.Name()
-
-				slog.Debug("repo found", "repo", repoName, "path", repoPath)
-				repos = append(repos, repoRef{repoName, repoPath})
-
-				return fs.SkipDir
-			})
-			took := time.Since(walkStart)
-			walkTotal += took
-			totalEntries += entries
-			slog.Debug("walk done", "root", root, "entries", entries, "took", took)
-		}
+		repos := findRepos()
 
 		gitStart := time.Now()
 		results := make([][]string, len(repos)) // indexed → deterministic order
@@ -179,12 +176,10 @@ to quickly create a Cobra application.`,
 		// git_total sums concurrent goroutines, so it can exceed git_wall
 		slog.Debug("perf summary",
 			"total_to_fzf", time.Since(runStart),
-			"walk_total", walkTotal,
 			"git_wall", gitWall,
 			"git_total", time.Duration(gitTotal.Load()),
 			"git_cmds", gitCount.Load(),
 			"repos", len(repos),
-			"entries", totalEntries,
 			"branches", len(lines),
 		)
 
@@ -239,6 +234,12 @@ func sessionName(repoName, branch string) string {
 	return r.Replace(repoName + " » " + branch)
 }
 
+// worktreeTarget is where twig places the worktree for a repo's branch.
+func worktreeTarget(repoName, branch string) string {
+	return filepath.Join(os.Getenv("HOME"), ".twig", "worktrees", repoName,
+		strings.ReplaceAll(branch, "/", "-"))
+}
+
 // ensureWorktree returns the path where localBranch is checked out, creating
 // a worktree under ~/.twig/worktrees/<repo>/ if it isn't checked out anywhere.
 func ensureWorktree(repoPath, repoName, fullBranch string) (string, error) {
@@ -260,8 +261,7 @@ func ensureWorktree(repoPath, repoName, fullBranch string) (string, error) {
 		}
 	}
 
-	target := filepath.Join(os.Getenv("HOME"), ".twig", "worktrees", repoName,
-		strings.ReplaceAll(localBranch, "/", "-"))
+	target := worktreeTarget(repoName, localBranch)
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return "", err
 	}
