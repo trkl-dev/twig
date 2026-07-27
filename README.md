@@ -1,6 +1,7 @@
 # TMUX
 
 bind g display-popup -E -w 80% -h 80% ~/go/bin/twig
+bind N display-popup -E -w 80% -h 60% "~/go/bin/twig new"
 # prefix + X → confirm, kill current session, jump to next session
 set -g detach-on-destroy off
 bind X confirm-before -p "kill session #S? (y/n)" kill-session
