@@ -6,7 +6,7 @@ package main
 import (
 	"log/slog"
 	"os"
-	"twig/cmd"
+	"github.com/trkl-dev/twig/cmd"
 )
 
 func main() {

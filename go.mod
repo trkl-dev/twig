@@ -1,4 +1,4 @@
-module twig
+module github.com/trkl-dev/twig
 
 go 1.26.4
 
