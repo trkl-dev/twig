@@ -193,15 +193,20 @@ and drops you into a tmux session for it.`,
 			return
 		}
 
-		fzf := exec.Command("fzf",
+		fzfArgs := []string{
+			"fzf",
+			"--popup", "center,80%",
 			"--prompt=branch > ",
 			"--delimiter=\t",
 			"--with-nth=1,3",
 			"--tabstop=24",
 			"--header=REPO \tBRANCH (r = remote, wt = worktree)",
-			// "--height=40%",
-			"--border",
-		)
+		}
+		if os.Getenv("TMUX") == "" {
+			fzfArgs = append(fzfArgs, "--border")
+			fzfArgs = append(fzfArgs, "--height=40%")
+		}
+		fzf := exec.Command(fzfArgs[0], fzfArgs[1:]...)
 		fzf.Stdin = strings.NewReader(strings.Join(lines, "\n"))
 		fzf.Stderr = os.Stderr
 

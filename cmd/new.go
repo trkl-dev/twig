@@ -34,12 +34,17 @@ a tmux session — same as picking an existing branch from twig.`,
 			lines = append(lines, r.name+"\t"+r.path)
 		}
 
-		fzf := exec.Command("fzf",
+		fzfArgs := []string{
+			"fzf",
+			"--popup", "center,60%",
 			"--prompt=repo > ",
 			"--delimiter=\t",
 			"--with-nth=1",
-			"--border",
-		)
+		}
+		if os.Getenv("TMUX") == "" {
+			fzfArgs = append(fzfArgs, "--border")
+		}
+		fzf := exec.Command(fzfArgs[0], fzfArgs[1:]...)
 		fzf.Stdin = strings.NewReader(strings.Join(lines, "\n"))
 		fzf.Stderr = os.Stderr
 		var buf bytes.Buffer

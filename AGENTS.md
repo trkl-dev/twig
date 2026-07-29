@@ -11,7 +11,9 @@ go run .          # runs the fzf picker
 
 ## Architecture
 
-Single-file cobra command: `cmd/root.go`. Entry point: `main.go`.
+Multi-file cobra commands in `cmd/*.go`. Entry point: `main.go`.
+
+All cobra commands live as separate files in `cmd/` (e.g. `root.go`, `new.go`). Each registers itself via `rootCmd.AddCommand` in its own `init()`. Always check `cmd/` for all available commands before assuming only one exists.
 
 Entry points into `main.go`: sets up `TWIG_DEBUG` env var for `slog` debug logging, then calls `cmd.Execute()`.
 
@@ -47,8 +49,8 @@ filter/dedup → fzf → ensureWorktree (checkout or create) → openTmux (creat
 ## Tmux plugin
 
 `twig.tmux` binds:
-- `g` → fzf branch picker (80% popup)
-- `N` → fzf session "new" (placeholder, 60% popup)
+- `g` → fzf branch picker via `--popup center,80%`
+- `N` → fzf new branch creator via `--popup center,60%`
 - `K` → kill sessions via fzf multi-select
 
 Set `@twig_binary` in tmux to override the default `$HOME/go/bin/twig`.
