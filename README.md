@@ -1,9 +1,23 @@
-# TMUX
+# TMUX (via TPM)
 
-bind g display-popup -E -w 80% -h 80% ~/go/bin/twig
-bind N display-popup -E -w 80% -h 60% "~/go/bin/twig new"
-# prefix + X → confirm, kill current session, jump to next session
-set -g detach-on-destroy off
-bind X confirm-before -p "kill session #S? (y/n)" kill-session
-# prefix + K → fzf pick session to kill
-bind K display-popup -E "tmux list-sessions -F '#{session_id} #S' | fzf --prompt='kill: ' --with-nth=2.. | cut -d' ' -f1 | xargs -r tmux kill-session -t"
+Add to your tmux.conf:
+
+```
+set -g @plugin 'trkl-dev/twig'
+```
+
+Then `prefix + I` to install.
+
+## Custom binary path
+
+```
+set -g @twig_binary '/custom/path/twig'
+```
+
+## Keybindings
+
+| Key          | Action                                  |
+| ------------ | --------------------------------------- |
+| `prefix + g` | Pick branch across repos (fzf popup)   |
+| `prefix + N` | Create new branch (fzf popup)          |
+| `prefix + K` | Fzf pick session(s) to kill (tab=multi) |

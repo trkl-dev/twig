@@ -21,6 +21,7 @@ import (
 
 var ProjectDirs = []string{
 	"$HOME/Projects",
+	"$HOME/dotfiles",
 }
 
 // MaxDepth caps how many levels below a project root the walk descends
@@ -111,6 +112,7 @@ func findRepos() []repoRef {
 		entries := 0
 		fs.WalkDir(fileSystem, ".", func(path string, d fs.DirEntry, err error) error {
 			entries++
+
 			if err != nil || !d.IsDir() {
 				return nil
 			}
@@ -133,10 +135,13 @@ func findRepos() []repoRef {
 				return fs.SkipDir
 			}
 
-			repoPath := filepath.Join(root, path)
-			repoName := d.Name()
+		repoPath := filepath.Join(root, path)
+		repoName := d.Name()
+		if path == "." {
+			repoName = filepath.Base(root)
+		}
 
-			slog.Debug("repo found", "repo", repoName, "path", repoPath)
+		slog.Debug("repo found", "repo", repoName, "path", repoPath)
 			repos = append(repos, repoRef{repoName, repoPath})
 
 			return fs.SkipDir
