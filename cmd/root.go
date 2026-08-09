@@ -14,12 +14,8 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/trkl-dev/twig/config"
 )
-
-var ProjectDirs = []string{
-	"$HOME/Projects",
-	"$HOME/dotfiles",
-}
 
 // MaxDepth caps how many levels below a project root the walk descends
 // looking for repos.
@@ -102,7 +98,7 @@ type repoRef struct{ name, path string }
 // findRepos walks ProjectDirs and returns every git repo found.
 func findRepos() []repoRef {
 	var repos []repoRef
-	for _, projectDir := range ProjectDirs {
+	for _, projectDir := range config.Cfg.ProjectDirs {
 		root := os.ExpandEnv(projectDir)
 		fileSystem := os.DirFS(root)
 		walkStart := time.Now()
@@ -132,13 +128,13 @@ func findRepos() []repoRef {
 				return fs.SkipDir
 			}
 
-		repoPath := filepath.Join(root, path)
-		repoName := d.Name()
-		if path == "." {
-			repoName = filepath.Base(root)
-		}
+			repoPath := filepath.Join(root, path)
+			repoName := d.Name()
+			if path == "." {
+				repoName = filepath.Base(root)
+			}
 
-		slog.Debug("repo found", "repo", repoName, "path", repoPath)
+			slog.Debug("repo found", "repo", repoName, "path", repoPath)
 			repos = append(repos, repoRef{repoName, repoPath})
 
 			return fs.SkipDir
@@ -154,6 +150,15 @@ var rootCmd = &cobra.Command{
 	Long: `Lists every branch across the repos under your project directories,
 lets you pick one with fzf, checks it out in a worktree if needed,
 and drops you into a tmux session for it.`,
+
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		cfg, err := config.Load()
+		if err != nil {
+			return err
+		}
+		config.Cfg = cfg
+		return nil
+	},
 	Run: func(cmd *cobra.Command, args []string) {
 		runStart := time.Now()
 		repos := findRepos()
