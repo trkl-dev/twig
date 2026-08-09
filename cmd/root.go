@@ -1,3 +1,4 @@
+// Package cmd contains all the commands for the Twig CLI
 package cmd
 
 import (
