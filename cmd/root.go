@@ -203,10 +203,8 @@ and drops you into a tmux session for it.`,
 			"--with-nth=1,3",
 			"--tabstop=24",
 			"--header=REPO \tBRANCH (r = remote, wt = worktree)",
-		}
-		if os.Getenv("TMUX") == "" {
-			fzfArgs = append(fzfArgs, "--border")
-			fzfArgs = append(fzfArgs, "--height=40%")
+			"--border",
+			"--height=40%",
 		}
 		fzf := exec.Command(fzfArgs[0], fzfArgs[1:]...)
 		fzf.Stdin = strings.NewReader(strings.Join(lines, "\n"))
