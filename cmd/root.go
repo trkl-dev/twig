@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -233,15 +234,81 @@ and drops you into a tmux session for it.`,
 			os.Exit(1)
 		}
 
-		if err := openTmux(sessionName(repoName, localBranch), wtPath); err != nil {
+		sessionName := getSessionName(repoName, localBranch)
+		sessionExists := tmuxSessionExists(sessionName)
+
+		if sessionExists {
+			var input string
+			for {
+				fmt.Print("An active session was found. Attach to it? [Y/n]: ")
+				_, err := fmt.Scanln(&input)
+
+				// If user just hits Enter, default to Yes
+				if err != nil && err.Error() == "unexpected newline" || input == "" {
+					err := attachToTMUXSession(sessionName)
+					if err != nil {
+						fmt.Fprintln(os.Stderr, err)
+						os.Exit(1)
+					}
+					break
+				}
+
+				cleanInput := strings.ToLower(strings.TrimSpace(input))
+
+				if cleanInput == "y" || cleanInput == "yes" {
+					err := attachToTMUXSession(sessionName)
+					if err != nil {
+						fmt.Fprintln(os.Stderr, err)
+						os.Exit(1)
+					}
+					break
+				} else if cleanInput == "n" || cleanInput == "no" {
+					nameParts := strings.SplitN(sessionName, " - ", 2)
+					fmt.Printf("nameParts: %v\n", nameParts)
+					if len(nameParts) > 1 {
+						sessionNum, err := strconv.Atoi(nameParts[1])
+						if err != nil {
+							fmt.Fprintln(os.Stderr, err)
+							os.Exit(1)
+						}
+						sessionName = fmt.Sprintf("%s - %d", nameParts[0], sessionNum+1)
+					} else {
+						sessionName = fmt.Sprintf("%s - 1", nameParts[0])
+					}
+
+					err := createNewTMUXSession(sessionName, wtPath)
+					if err != nil {
+						fmt.Fprintln(os.Stderr, err)
+						os.Exit(1)
+					}
+					err = attachToTMUXSession(sessionName)
+					if err != nil {
+						fmt.Fprintln(os.Stderr, err)
+						os.Exit(1)
+					}
+					break
+				}
+
+				fmt.Println("Invalid input. Please enter 'y' for yes or 'n' for no.")
+			}
+		}
+
+		err = createNewTMUXSession(sessionName, wtPath)
+		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
+		err = attachToTMUXSession(sessionName)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+
 	},
 }
 
-// sessionName builds a tmux session name; tmux forbids '.' and ':' in names.
-func sessionName(repoName, branch string) string {
+// getSessionName builds a tmux session name; tmux forbids '.' and ':' in names.
+func getSessionName(repoName, branch string) string {
 	r := strings.NewReplacer(".", "-", ":", "-")
 	return r.Replace(repoName + " » " + branch)
 }
@@ -293,14 +360,37 @@ func ensureWorktree(repoPath, repoName, fullBranch string) (string, error) {
 
 // openTmux switches (inside tmux) or attaches (outside) to the named session,
 // creating it at dir first if needed.
-func openTmux(name, dir string) error {
-	if err := exec.Command("tmux", "has-session", "-t", "="+name).Run(); err != nil {
-		if out, err := exec.Command("tmux", "new-session", "-d", "-s", name, "-c", dir).CombinedOutput(); err != nil {
-			return fmt.Errorf("tmux new-session failed: %s", out)
-		}
-		slog.Debug("session created", "session", name, "dir", dir)
-	}
+// func openTmux(name, dir string) error {
+//
+// 	err := exec.Command("tmux", "has-session", "-t", "="+name).Run()
+// 	// No existing session found
+// 	if err != nil {
+// 		if out, err := exec.Command("tmux", "new-session", "-d", "-s", name, "-c", dir).CombinedOutput(); err != nil {
+// 			return fmt.Errorf("tmux new-session failed: %s", out)
+// 		}
+// 		slog.Debug("session created", "session", name, "dir", dir)
+// 	} else {
+// 	}
+//
+// 	if os.Getenv("TMUX") != "" {
+// 		if out, err := exec.Command("tmux", "switch-client", "-t", "="+name).CombinedOutput(); err != nil {
+// 			return fmt.Errorf("tmux switch-client failed: %s", out)
+// 		}
+// 		return nil
+// 	}
+// 	attach := exec.Command("tmux", "attach-session", "-t", "="+name)
+// 	attach.Stdin = os.Stdin
+// 	attach.Stdout = os.Stdout
+// 	attach.Stderr = os.Stderr
+// 	return attach.Run()
+// }
 
+func tmuxSessionExists(name string) bool {
+	err := exec.Command("tmux", "has-session", "-t", "="+name).Run()
+	return err == nil
+}
+
+func attachToTMUXSession(name string) error {
 	if os.Getenv("TMUX") != "" {
 		if out, err := exec.Command("tmux", "switch-client", "-t", "="+name).CombinedOutput(); err != nil {
 			return fmt.Errorf("tmux switch-client failed: %s", out)
@@ -312,6 +402,22 @@ func openTmux(name, dir string) error {
 	attach.Stdout = os.Stdout
 	attach.Stderr = os.Stderr
 	return attach.Run()
+}
+
+// createNewTMUXSession creates a new TMUX session, returning an error if a session
+// with the given name already exists
+func createNewTMUXSession(name, dir string) error {
+	// err := exec.Command("tmux", "has-session", "-t", "="+name).Run()
+	// Error is returned when no existing session is found
+	// if err != nil {
+	if out, err := exec.Command("tmux", "new-session", "-d", "-s", name, "-c", dir).CombinedOutput(); err != nil {
+		return fmt.Errorf("tmux new-session failed: %s", out)
+	}
+	slog.Debug("session created", "session", name, "dir", dir)
+	return nil
+	// }
+
+	// return fmt.Errorf("error creating TMUX session %s. Session already exists", name)
 }
 
 // Execute runs the root command. Called by main.

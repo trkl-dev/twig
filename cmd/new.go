@@ -101,7 +101,14 @@ a tmux session — same as picking an existing branch from twig.`,
 			os.Exit(1)
 		}
 
-		if err := openTmux(sessionName(repoName, branch), wtPath); err != nil {
+		sessionName := getSessionName(repoName, branch)
+		err = createNewTMUXSession(sessionName, wtPath)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		err = attachToTMUXSession(sessionName)
+		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
