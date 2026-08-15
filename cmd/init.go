@@ -64,7 +64,7 @@ func init() {
 
 	var configLocation, exists = os.LookupEnv("XDG_CONFIG_HOME")
 	if !exists {
-		slog.Warn("Config env var not found")
+		slog.Debug("Config env var not found")
 		configLocation = os.ExpandEnv("$HOME/.config")
 	}
 	initCmd.Flags().StringP("path", "p", configLocation, "Write config files to custom location")

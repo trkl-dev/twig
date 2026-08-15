@@ -31,7 +31,7 @@ func DefaultConfig() Config {
 func Load() (Config, error) {
 	var configLocation, exists = os.LookupEnv("XDG_CONFIG_HOME")
 	if !exists {
-		slog.Warn("Config env var not found")
+		slog.Debug("Config env var not found")
 		configLocation = os.ExpandEnv("$HOME/.config")
 	}
 
