@@ -54,7 +54,7 @@ eval "$(twig init bash)"
 ```
 - zsh (hopefully):
 ```sh
-source <(fzf init bash)
+source <(twig init bash)
 ```
 
 ## Usage
