@@ -150,7 +150,7 @@ var rootCmd = &cobra.Command{
 	Short: "Fuzzy-switch to any branch across your repos",
 	Long: `Lists every branch across the repos under your project directories,
 lets you pick one with fzf, checks it out in a worktree if needed,
-and drops you into a tmux session for it.`,
+and drops you into the directory.`,
 
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load()
@@ -204,10 +204,6 @@ and drops you into a tmux session for it.`,
 			"--tabstop=24",
 			"--header=REPO \tBRANCH (r = remote, wt = worktree)",
 		}
-		if os.Getenv("TMUX") == "" {
-			fzfArgs = append(fzfArgs, "--border")
-			fzfArgs = append(fzfArgs, "--height=40%")
-		}
 		fzf := exec.Command(fzfArgs[0], fzfArgs[1:]...)
 		fzf.Stdin = strings.NewReader(strings.Join(lines, "\n"))
 		fzf.Stderr = os.Stderr
@@ -225,7 +221,7 @@ and drops you into a tmux session for it.`,
 			os.Exit(0)
 		}
 		repoName, fullBranch, repoPath := parts[0], parts[1], parts[3]
-		localBranch := strings.TrimPrefix(fullBranch, "origin/")
+		_ = strings.TrimPrefix(fullBranch, "origin/")
 
 		wtPath, err := ensureWorktree(repoPath, repoName, fullBranch)
 		if err != nil {
@@ -233,18 +229,11 @@ and drops you into a tmux session for it.`,
 			os.Exit(1)
 		}
 
-		if err := openTmux(sessionName(repoName, localBranch), wtPath); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
+		// stdout used to change directory
+		fmt.Println(wtPath)
 	},
 }
 
-// sessionName builds a tmux session name; tmux forbids '.' and ':' in names.
-func sessionName(repoName, branch string) string {
-	r := strings.NewReplacer(".", "-", ":", "-")
-	return r.Replace(repoName + " » " + branch)
-}
 
 // worktreeTarget is where twig places the worktree for a repo's branch.
 func worktreeTarget(repoName, branch string) string {
@@ -289,29 +278,6 @@ func ensureWorktree(repoPath, repoName, fullBranch string) (string, error) {
 	}
 	slog.Debug("worktree created", "branch", localBranch, "path", target)
 	return target, nil
-}
-
-// openTmux switches (inside tmux) or attaches (outside) to the named session,
-// creating it at dir first if needed.
-func openTmux(name, dir string) error {
-	if err := exec.Command("tmux", "has-session", "-t", "="+name).Run(); err != nil {
-		if out, err := exec.Command("tmux", "new-session", "-d", "-s", name, "-c", dir).CombinedOutput(); err != nil {
-			return fmt.Errorf("tmux new-session failed: %s", out)
-		}
-		slog.Debug("session created", "session", name, "dir", dir)
-	}
-
-	if os.Getenv("TMUX") != "" {
-		if out, err := exec.Command("tmux", "switch-client", "-t", "="+name).CombinedOutput(); err != nil {
-			return fmt.Errorf("tmux switch-client failed: %s", out)
-		}
-		return nil
-	}
-	attach := exec.Command("tmux", "attach-session", "-t", "="+name)
-	attach.Stdin = os.Stdin
-	attach.Stdout = os.Stdout
-	attach.Stderr = os.Stderr
-	return attach.Run()
 }
 
 // Execute runs the root command. Called by main.

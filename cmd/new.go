@@ -17,8 +17,8 @@ var newCmd = &cobra.Command{
 	Use:   "new",
 	Short: "Create a new branch in a repo and open it",
 	Long: `Pick a repo with fzf, name a new branch, and twig creates it off the
-repo's default branch (fetched first), sets up a worktree, and opens
-a tmux session — same as picking an existing branch from twig.`,
+repo's default branch (fetched first), sets up a worktree, and changes directory 
+— same as picking an existing branch from twig.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		repos := findRepos()
 		if len(repos) == 0 {
@@ -37,9 +37,6 @@ a tmux session — same as picking an existing branch from twig.`,
 			"--prompt=repo > ",
 			"--delimiter=\t",
 			"--with-nth=1",
-		}
-		if os.Getenv("TMUX") == "" {
-			fzfArgs = append(fzfArgs, "--border")
 		}
 		fzf := exec.Command(fzfArgs[0], fzfArgs[1:]...)
 		fzf.Stdin = strings.NewReader(strings.Join(lines, "\n"))
@@ -100,11 +97,7 @@ a tmux session — same as picking an existing branch from twig.`,
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
-
-		if err := openTmux(sessionName(repoName, branch), wtPath); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
+		fmt.Println(wtPath)
 	},
 }
 

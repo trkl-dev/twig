@@ -9,6 +9,8 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/trkl-dev/twig/config"
+
+	_ "embed"
 )
 
 var initCmd = &cobra.Command{
@@ -57,10 +59,23 @@ var initCmd = &cobra.Command{
 	},
 }
 
+//go:embed shells/bash.sh
+var bashFile string
+
+var initBash = &cobra.Command{
+	Use:   "bash",
+	Short: "Output bash script for shell loading",
+
+	Run: func(cmd *cobra.Command, args []string) {
+		fmt.Println(string(bashFile))
+	},
+}
+
 func init() {
 	rootCmd.AddCommand(initCmd)
 
 	initCmd.Flags().BoolP("force", "f", false, "Force initialization of project config files")
+	initCmd.AddCommand(initBash)
 
 	var configLocation, exists = os.LookupEnv("XDG_CONFIG_HOME")
 	if !exists {
