@@ -65,7 +65,8 @@ repo's default branch (fetched first), sets up a worktree, and changes directory
 			fetchDone <- nil
 		}
 
-		fmt.Printf("new branch off %s > ", base)
+		// Print to stderr so as not to polute the output for directory change
+		fmt.Fprintf(os.Stderr, "new branch off %s > ", base)
 		line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
 		branch := strings.TrimSpace(line)
 		if branch == "" {
