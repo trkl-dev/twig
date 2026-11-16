@@ -38,10 +38,15 @@ func Load() (Config, error) {
 	configPath := path.Join(configLocation, "twig/config.json")
 	configJson, err := os.Open(configPath)
 	if err != nil {
-		slog.Warn("Config file not found", "path", configPath, "err", err)
+		slog.Debug("Config file not found", "path", configPath, "err", err)
 		return DefaultConfig(), nil 
 	}
-	defer configJson.Close()
+	defer func() {
+		err := configJson.Close()
+		if err != nil {
+			slog.Error(err.Error())
+		}
+	}()
 
 	jsonBytes, err := io.ReadAll(configJson)
 	if err != nil {

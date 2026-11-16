@@ -7,7 +7,7 @@ import (
 )
 
 func main() {
-	if os.Getenv("TWIG_DEBUG") != "" {
+	if os.Getenv("TWIG_DEBUG") == "1" {
 		slog.SetLogLoggerLevel(slog.LevelDebug)
 	}
 	cmd.Execute()

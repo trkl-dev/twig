@@ -37,7 +37,16 @@ var initCmd = &cobra.Command{
 			return
 		}
 
-		configPath := path.Join(configLocation, "twig/config.json")
+		configParentPath := path.Join(configLocation, "twig")
+
+		err = os.MkdirAll(configParentPath, os.ModePerm)
+		if err != nil {
+			slog.Error("Error ensuring config directory path is present", "err", err)
+			return
+		}
+
+		configPath := path.Join(configParentPath, "config.json")
+		slog.Debug("config path", "path", configPath)
 		_, err = os.Stat(configPath)
 		if os.IsNotExist(err) || force {
 			configData, err := json.MarshalIndent(config.DefaultConfig(), "", "    ")
@@ -90,6 +99,8 @@ func init() {
 	initCmd.AddCommand(initBash)
 	initCmd.AddCommand(initFish)
 
+	// Deliberately not using os.UserConfigDir because it doesn't feel right on mac.
+	// Still allow override through XDG_CONFIG_HOME
 	var configLocation, exists = os.LookupEnv("XDG_CONFIG_HOME")
 	if !exists {
 		slog.Debug("Config env var not found")
