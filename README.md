@@ -56,6 +56,10 @@ eval "$(twig init bash)"
 ```sh
 source <(twig init bash)
 ```
+- Fish (untested):
+```fish
+twig init fish | source
+```
 
 ## Usage
 

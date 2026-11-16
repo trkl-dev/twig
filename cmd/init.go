@@ -62,6 +62,9 @@ var initCmd = &cobra.Command{
 //go:embed shells/bash.sh
 var bashFile string
 
+//go:embed shells/twig.fish
+var fishFile string
+
 var initBash = &cobra.Command{
 	Use:   "bash",
 	Short: "Output bash script for shell loading",
@@ -71,11 +74,21 @@ var initBash = &cobra.Command{
 	},
 }
 
+var initFish = &cobra.Command{
+	Use:   "fish",
+	Short: "Output fish script for shell loading",
+
+	Run: func(cmd *cobra.Command, args []string) {
+		fmt.Println(string(fishFile))
+	},
+}
+
 func init() {
 	rootCmd.AddCommand(initCmd)
 
 	initCmd.Flags().BoolP("force", "f", false, "Force initialization of project config files")
 	initCmd.AddCommand(initBash)
+	initCmd.AddCommand(initFish)
 
 	var configLocation, exists = os.LookupEnv("XDG_CONFIG_HOME")
 	if !exists {
