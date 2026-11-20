@@ -4,11 +4,9 @@ package cmd
 import (
 	"bytes"
 	"fmt"
-	"io/fs"
 	"log/slog"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -16,11 +14,8 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/trkl-dev/twig/config"
+	"github.com/trkl-dev/twig/utils"
 )
-
-// MaxDepth caps how many levels below a project root the walk descends
-// looking for repos.
-var MaxDepth = 5
 
 // ponytail: package-level perf counters, fine for a one-shot CLI.
 // Atomic: runCmdIn runs from concurrent goroutines. gitTotal is summed
@@ -29,121 +24,6 @@ var (
 	gitTotal atomic.Int64 // nanoseconds
 	gitCount atomic.Int64
 )
-
-func runCmdIn(dir, name string, args ...string) (string, error) {
-	cmd := exec.Command(name, args...)
-	cmd.Dir = dir
-	start := time.Now()
-	out, err := cmd.CombinedOutput()
-	took := time.Since(start)
-	gitTotal.Add(int64(took))
-	gitCount.Add(1)
-	slog.Debug("ran command", "command", cmd.String(), "dir", dir, "took", took)
-	return string(out), err
-}
-
-// branchLines runs `git branch -a` in a repo and formats fzf input lines.
-func branchLines(repoName, repoPath string) []string {
-	out, err := runCmdIn(repoPath, "git", "branch", "-a", "--format=%(refname:short)%09%(if)%(worktreepath)%(then)wt%(end)")
-	if err != nil {
-		slog.Warn("failed to list branches", "repo", repoName, "err", err)
-		return nil
-	}
-
-	type remoteBranch struct {
-		name  string
-		hasWt bool
-	}
-	var remoteBranches []remoteBranch
-	localSet := map[string]bool{}
-	var lines []string
-
-	for raw := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
-		b, wtFlag, _ := strings.Cut(raw, "\t")
-		b = strings.TrimSpace(b)
-		if b == "" || b == "origin" {
-			continue
-		}
-		hasWt := wtFlag == "wt"
-		if strings.HasPrefix(b, "origin/") {
-			remoteBranches = append(remoteBranches, remoteBranch{b, hasWt})
-		} else {
-			display := b
-			if hasWt {
-				display += " (wt)"
-			}
-			localSet[b] = true
-			slog.Debug("branch found", "branch", b)
-			lines = append(lines, fmt.Sprintf("%s\t%s\t%s\t%s", repoName, b, display, repoPath))
-		}
-	}
-
-	for _, rb := range remoteBranches {
-		short := strings.TrimPrefix(rb.name, "origin/")
-		if localSet[short] {
-			continue
-		}
-		display := short + " (r)"
-		if rb.hasWt {
-			display += ", wt"
-		}
-		slog.Debug("branch found", "branch", rb.name)
-		lines = append(lines, fmt.Sprintf("%s\t%s\t%s\t%s", repoName, rb.name, display, repoPath))
-	}
-
-	return lines
-}
-
-type repoRef struct{ name, path string }
-
-// findRepos walks ProjectDirs and returns every git repo found.
-func findRepos() []repoRef {
-	var repos []repoRef
-	for _, projectDir := range config.Cfg.ProjectDirs {
-		root := os.ExpandEnv(projectDir)
-		fileSystem := os.DirFS(root)
-		walkStart := time.Now()
-		entries := 0
-		fs.WalkDir(fileSystem, ".", func(path string, d fs.DirEntry, err error) error {
-			entries++
-
-			if err != nil || !d.IsDir() {
-				return nil
-			}
-			if d.Name() == ".git" {
-				return fs.SkipDir
-			}
-			gitPath := filepath.Join(root, path, ".git")
-			gitDirInfo, err := os.Stat(gitPath)
-
-			if err != nil {
-				// not a repo; don't descend past MaxDepth
-				if strings.Count(path, "/")+1 >= MaxDepth {
-					return fs.SkipDir
-				}
-				return nil
-			}
-
-			if !gitDirInfo.IsDir() {
-				slog.Debug("skipping worktree", "path", gitPath)
-				return fs.SkipDir
-			}
-
-			repoPath := filepath.Join(root, path)
-			repoName := d.Name()
-			if path == "." {
-				repoName = filepath.Base(root)
-			}
-
-			slog.Debug("repo found", "repo", repoName, "path", repoPath)
-			repos = append(repos, repoRef{repoName, repoPath})
-
-			return fs.SkipDir
-		})
-		slog.Debug("walk done", "root", root, "entries", entries, "took", time.Since(walkStart))
-	}
-	return repos
-}
 
 var rootCmd = &cobra.Command{
 	Use:   "twig",
@@ -162,14 +42,14 @@ and drops you into the directory.`,
 	},
 	Run: func(cmd *cobra.Command, args []string) {
 		runStart := time.Now()
-		repos := findRepos()
+		repos := utils.FindRepos()
 
 		gitStart := time.Now()
-		results := make([][]string, len(repos)) // indexed → deterministic order
+		results := make([]utils.Branch, len(repos))
 		var wg sync.WaitGroup
-		for i, r := range repos {
+		for _, r := range repos {
 			wg.Go(func() {
-				results[i] = branchLines(r.name, r.path)
+				results = append(results, utils.Branches(r.Path)...)
 			})
 		}
 		wg.Wait()
@@ -223,7 +103,7 @@ and drops you into the directory.`,
 		repoName, fullBranch, repoPath := parts[0], parts[1], parts[3]
 		_ = strings.TrimPrefix(fullBranch, "origin/")
 
-		wtPath, err := ensureWorktree(repoPath, repoName, fullBranch)
+		wtPath, err := utils.EnsureWorktree(repoPath, repoName, fullBranch)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
@@ -232,52 +112,6 @@ and drops you into the directory.`,
 		// stdout used to change directory
 		fmt.Println(wtPath)
 	},
-}
-
-
-// worktreeTarget is where twig places the worktree for a repo's branch.
-func worktreeTarget(repoName, branch string) string {
-	return filepath.Join(os.Getenv("HOME"), ".twig", "worktrees", repoName,
-		strings.ReplaceAll(branch, "/", "-"))
-}
-
-// ensureWorktree returns the path where localBranch is checked out, creating
-// a worktree under ~/.twig/worktrees/<repo>/ if it isn't checked out anywhere.
-func ensureWorktree(repoPath, repoName, fullBranch string) (string, error) {
-	localBranch := strings.TrimPrefix(fullBranch, "origin/")
-
-	out, err := runCmdIn(repoPath, "git", "worktree", "list", "--porcelain")
-	if err != nil {
-		return "", fmt.Errorf("git worktree list failed in %s: %s", repoPath, out)
-	}
-	var curPath string
-	for line := range strings.SplitSeq(out, "\n") {
-		if p, ok := strings.CutPrefix(line, "worktree "); ok {
-			curPath = p
-		} else if b, ok := strings.CutPrefix(line, "branch "); ok {
-			if strings.TrimPrefix(b, "refs/heads/") == localBranch {
-				slog.Debug("branch already checked out", "branch", localBranch, "path", curPath)
-				return curPath, nil
-			}
-		}
-	}
-
-	target := worktreeTarget(repoName, localBranch)
-	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-		return "", err
-	}
-
-	args := []string{"worktree", "add", target}
-	if strings.HasPrefix(fullBranch, "origin/") {
-		args = append(args, "-b", localBranch, fullBranch)
-	} else {
-		args = append(args, localBranch)
-	}
-	if out, err := runCmdIn(repoPath, "git", args...); err != nil {
-		return "", fmt.Errorf("git worktree add failed: %s", out)
-	}
-	slog.Debug("worktree created", "branch", localBranch, "path", target)
-	return target, nil
 }
 
 // Execute runs the root command. Called by main.

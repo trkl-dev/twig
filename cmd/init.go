@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/trkl-dev/twig/config"
+	"github.com/trkl-dev/twig/utils"
 
 	_ "embed"
 )
@@ -23,13 +24,7 @@ var initCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Println("Initializing twig...")
 
-		configDir, err := cmd.Flags().GetString("path")
-		if err != nil {
-			slog.Error("Error reading 'path' flag from Cobra", "err", err)
-			return
-		}
-
-		configLocation := os.ExpandEnv(configDir)
+		configLocation := utils.TwigConfigHome()
 
 		force, err := cmd.Flags().GetBool("force")
 		if err != nil {
@@ -83,6 +78,15 @@ var initBash = &cobra.Command{
 	},
 }
 
+var initZsh = &cobra.Command{
+	Use:   "zsh",
+	Short: "Output zsh script for shell loading",
+
+	Run: func(cmd *cobra.Command, args []string) {
+		fmt.Println(string(bashFile))
+	},
+}
+
 var initFish = &cobra.Command{
 	Use:   "fish",
 	Short: "Output fish script for shell loading",
@@ -95,16 +99,9 @@ var initFish = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(initCmd)
 
-	initCmd.Flags().BoolP("force", "f", false, "Force initialization of project config files")
-	initCmd.AddCommand(initBash)
-	initCmd.AddCommand(initFish)
+	initCmd.Flags().BoolP("force", "f", false, "Force initialization of project config files and override any existing config")
 
-	// Deliberately not using os.UserConfigDir because it doesn't feel right on mac.
-	// Still allow override through XDG_CONFIG_HOME
-	var configLocation, exists = os.LookupEnv("XDG_CONFIG_HOME")
-	if !exists {
-		slog.Debug("Config env var not found")
-		configLocation = os.ExpandEnv("$HOME/.config")
-	}
-	initCmd.Flags().StringP("path", "p", configLocation, "Write config files to custom location")
+	initCmd.AddCommand(initBash)
+	initCmd.AddCommand(initZsh)
+	initCmd.AddCommand(initFish)
 }
