@@ -6,10 +6,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
+
+	"github.com/trkl-dev/twig/utils"
 )
 
 // newCmd creates a branch off a repo's default branch and opens it.
@@ -20,7 +21,7 @@ var newCmd = &cobra.Command{
 repo's default branch (fetched first), sets up a worktree, and changes directory 
 — same as picking an existing branch from twig.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		repos := findRepos()
+		repos := utils.FindRepos()
 		if len(repos) == 0 {
 			fmt.Println("No repos found")
 			return
@@ -28,7 +29,7 @@ repo's default branch (fetched first), sets up a worktree, and changes directory
 
 		var lines []string
 		for _, r := range repos {
-			lines = append(lines, r.name+"\t"+r.path)
+			lines = append(lines, r.Name+"\t"+r.Path)
 		}
 
 		fzfArgs := []string{
@@ -52,13 +53,13 @@ repo's default branch (fetched first), sets up a worktree, and changes directory
 			os.Exit(0)
 		}
 
-		base := defaultBase(repoPath)
+		base := utils.DefaultBase(repoPath)
 
 		// fetch while the user types the branch name
 		fetchDone := make(chan error, 1)
 		if short, isRemote := strings.CutPrefix(base, "origin/"); isRemote {
 			go func() {
-				_, err := runCmdIn(repoPath, "git", "fetch", "origin", short)
+				_, err := utils.RunCmdIn(repoPath, "git", "fetch", "origin", short)
 				fetchDone <- err
 			}()
 		} else {
@@ -73,7 +74,7 @@ repo's default branch (fetched first), sets up a worktree, and changes directory
 			os.Exit(0)
 		}
 
-		if out, err := runCmdIn(repoPath, "git", "check-ref-format", "--branch", branch); err != nil {
+		if out, err := utils.RunCmdIn(repoPath, "git", "check-ref-format", "--branch", branch); err != nil {
 			fmt.Fprintf(os.Stderr, "invalid branch name %q: %s", branch, out)
 			os.Exit(1)
 		}
@@ -85,14 +86,14 @@ repo's default branch (fetched first), sets up a worktree, and changes directory
 		var wtPath string
 		var err error
 		switch {
-		case refExists(repoPath, "refs/heads/"+branch):
+		case utils.RefExists(repoPath, "refs/heads/"+branch):
 			fmt.Printf("branch %s already exists, switching to it\n", branch)
-			wtPath, err = ensureWorktree(repoPath, repoName, branch)
-		case refExists(repoPath, "refs/remotes/origin/"+branch):
+			wtPath, err = utils.EnsureWorktree(repoPath, repoName, branch)
+		case utils.RefExists(repoPath, "refs/remotes/origin/"+branch):
 			fmt.Printf("branch origin/%s already exists, switching to it\n", branch)
-			wtPath, err = ensureWorktree(repoPath, repoName, "origin/"+branch)
+			wtPath, err = utils.EnsureWorktree(repoPath, repoName, "origin/"+branch)
 		default:
-			wtPath, err = createWorktree(repoPath, repoName, branch, base)
+			wtPath, err = utils.CreateWorktree(repoPath, repoName, branch, base)
 		}
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
@@ -100,40 +101,6 @@ repo's default branch (fetched first), sets up a worktree, and changes directory
 		}
 		fmt.Println(wtPath)
 	},
-}
-
-func refExists(repoPath, ref string) bool {
-	_, err := runCmdIn(repoPath, "git", "rev-parse", "--verify", "--quiet", ref)
-	return err == nil
-}
-
-// defaultBase picks what a new branch forks from: the remote default branch
-// when one is known, else the currently checked-out branch, else HEAD.
-func defaultBase(repoPath string) string {
-	if out, err := runCmdIn(repoPath, "git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"); err == nil {
-		return strings.TrimSpace(out) // e.g. "origin/main"
-	}
-	for _, ref := range []string{"origin/main", "origin/master"} {
-		if refExists(repoPath, "refs/remotes/"+ref) {
-			return ref
-		}
-	}
-	if out, err := runCmdIn(repoPath, "git", "branch", "--show-current"); err == nil && strings.TrimSpace(out) != "" {
-		return strings.TrimSpace(out)
-	}
-	return "HEAD"
-}
-
-// createWorktree makes a new branch off base and checks it out in a worktree.
-func createWorktree(repoPath, repoName, branch, base string) (string, error) {
-	target := worktreeTarget(repoName, branch)
-	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-		return "", err
-	}
-	if out, err := runCmdIn(repoPath, "git", "worktree", "add", target, "-b", branch, base); err != nil {
-		return "", fmt.Errorf("git worktree add failed: %s", out)
-	}
-	return target, nil
 }
 
 func init() {
