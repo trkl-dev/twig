@@ -1,11 +1,13 @@
 package utils
 
 import (
+	"cmp"
 	"fmt"
 	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -78,19 +80,29 @@ type Branch struct {
 // TODO: Sense checks:
 // - Branch can't be remote and have a worktree
 
-func Display(b *Branch) string {
-	return ""
+func (b *Branch) Display() string {
+	if b.HasWT && b.IsRemote {
+		panic("impossible")
+	}
+	var tag string
+	if b.HasWT {
+		tag = "(wt)"
+	}
+	if b.IsRemote {
+		tag = "(r)"
+	}
+	return fmt.Sprintf("%s %s", b.Name, tag)
 }
 
 // branchLines runs `git branch -a` in a repo and formats fzf input lines.
-func Branches(repoPath string) []Branch {
+func Branches(repoPath string, c chan Branch) {
+	slog.Debug("Retrieving branches", "repoPath", repoPath)
 	out, err := RunCmdIn(repoPath, "git", "branch", "-a", "--format=%(refname:short)%09%(if)%(worktreepath)%(then)wt%(end)")
 	if err != nil {
 		slog.Warn("failed to list branches", "repo", repoPath, "err", err)
-		return nil
+		close(c)
+		return
 	}
-
-	var branches []Branch
 
 	for raw := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
 		branchName, wtFlag, _ := strings.Cut(raw, "\t")
@@ -104,15 +116,13 @@ func Branches(repoPath string) []Branch {
 			panic("Branch has both worktree and marked as remote")
 		}
 
-		branches = append(branches, Branch{
+		c <- Branch{
 			Name:     branchName,
 			HasWT:    hasWt,
 			RepoPath: repoPath,
 			IsRemote: isRemote,
-		})
+		}
 	}
-
-	return branches
 }
 
 type Repo struct {
@@ -165,7 +175,10 @@ func FindRepos() []Repo {
 			}
 
 			slog.Debug("repo found", "repo", repoName, "path", repoPath)
-			repos = append(repos, Repo{repoName, repoPath})
+			repos = append(repos, Repo{
+				Path: repoPath,
+				Name: repoName,
+			})
 
 			return fs.SkipDir
 		})
@@ -175,6 +188,12 @@ func FindRepos() []Repo {
 			os.Exit(0)
 		}
 	}
+
+	// Return the slice sorted so we can search quicker
+	slices.SortFunc(repos, func(a, b Repo) int {
+		return cmp.Compare(a.Path, b.Path)
+	})
+
 	return repos
 }
 

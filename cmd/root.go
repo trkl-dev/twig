@@ -3,26 +3,17 @@ package cmd
 
 import (
 	"bytes"
+	"cmp"
 	"fmt"
-	"log/slog"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"sync"
-	"sync/atomic"
-	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/trkl-dev/twig/config"
 	"github.com/trkl-dev/twig/utils"
-)
-
-// ponytail: package-level perf counters, fine for a one-shot CLI.
-// Atomic: runCmdIn runs from concurrent goroutines. gitTotal is summed
-// across goroutines, so it can exceed wall time.
-var (
-	gitTotal atomic.Int64 // nanoseconds
-	gitCount atomic.Int64
 )
 
 var rootCmd = &cobra.Command{
@@ -41,42 +32,50 @@ and drops you into the directory.`,
 		return nil
 	},
 	Run: func(cmd *cobra.Command, args []string) {
-		runStart := time.Now()
+		// This could prob be async?
 		repos := utils.FindRepos()
 
-		gitStart := time.Now()
-		results := make([]utils.Branch, len(repos))
 		var wg sync.WaitGroup
+		// We know that we will have at _least_ 1 branch per repo found, so may as well pre-allocate for that
+		branches := make([]string, 0, len(repos))
+		fmt.Printf("repos: %v\n", repos)
+		c := make(chan utils.Branch, 100)
+
 		for _, r := range repos {
 			wg.Go(func() {
-				results = append(results, utils.Branches(r.Path)...)
+				utils.Branches(r.Path, c)
 			})
 		}
-		wg.Wait()
-		gitWall := time.Since(gitStart)
 
-		var lines []string
-		for _, ls := range results {
-			lines = append(lines, ls...)
+		// Wait on all the goroutines to complete and close the channel
+		go func() {
+			wg.Wait()
+			close(c)
+		}()
+
+		for branch := range c {
+			// Binary search for repoName given the repo path
+			idx, found := slices.BinarySearchFunc(repos, branch.RepoPath, func(r utils.Repo, t string) int {
+				return cmp.Compare(r.Path, t)
+			})
+			if !found {
+				panic("impossible")
+			}
+			repo := repos[idx]
+			branches = append(branches, fmt.Sprintf("%s\t%s\t%s\t%s", repo.Name, branch.Name, branch.Display(), repo.Path))
 		}
 
-		// git_total sums concurrent goroutines, so it can exceed git_wall
-		slog.Debug("perf summary",
-			"total_to_fzf", time.Since(runStart),
-			"git_wall", gitWall,
-			"git_total", time.Duration(gitTotal.Load()),
-			"git_cmds", gitCount.Load(),
-			"repos", len(repos),
-			"branches", len(lines),
-		)
+		slices.Sort(branches)
 
-		if len(lines) == 0 {
+
+		if len(branches) == 0 {
 			fmt.Println("No branches found")
 			return
 		}
 
 		fzfArgs := []string{
 			"fzf",
+			"--exact",
 			"--popup", "center,80%",
 			"--prompt=branch > ",
 			"--delimiter=\t",
@@ -85,7 +84,7 @@ and drops you into the directory.`,
 			"--header=REPO \tBRANCH (r = remote, wt = worktree)",
 		}
 		fzf := exec.Command(fzfArgs[0], fzfArgs[1:]...)
-		fzf.Stdin = strings.NewReader(strings.Join(lines, "\n"))
+		fzf.Stdin = strings.NewReader(strings.Join(branches, "\n"))
 		fzf.Stderr = os.Stderr
 
 		var buf bytes.Buffer

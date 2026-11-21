@@ -2,13 +2,13 @@ package main
 
 import (
 	"log/slog"
-	"os"
+	// "os"
 	"github.com/trkl-dev/twig/cmd"
 )
 
 func main() {
-	if os.Getenv("TWIG_DEBUG") == "1" {
-		slog.SetLogLoggerLevel(slog.LevelDebug)
-	}
+	// if os.Getenv("TWIG_DEBUG") == "1" {
+	slog.SetLogLoggerLevel(slog.LevelDebug)
+	// }
 	cmd.Execute()
 }
